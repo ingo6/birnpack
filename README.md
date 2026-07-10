@@ -47,4 +47,4 @@ Every claim here is testable: `make test` packs and unpacks generated + repo fil
 
 ## License
 
-Not yet chosen — all rights reserved for now. Will be settled before wider distribution.
+MIT — see [LICENSE](LICENSE). Use it, test it, break it, tell us.

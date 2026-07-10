@@ -47,4 +47,4 @@ Jede Behauptung hier ist testbar: `make test` packt und entpackt generierte + Re
 
 ## Lizenz
 
-Noch nicht gewählt — vorerst alle Rechte vorbehalten. Wird vor breiterer Verteilung festgelegt.
+MIT — siehe [LICENSE](LICENSE). Benutzen, testen, kaputtmachen, Bescheid sagen.
