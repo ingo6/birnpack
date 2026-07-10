@@ -1542,7 +1542,9 @@ static int compress_file(const char *inp, const char *outp) {
             pthread_create(&th[b+k], NULL, enc_worker, &jobs[b+k]);
         for (uint32_t j = 0; j < k; j++) pthread_join(th[b+j], NULL);
         b += k;
+        if (nb > 1) { fprintf(stderr, "\rbirnpack: compressing... %3u%%", (unsigned)(100u * b / nb)); fflush(stderr); }  /* nur Anzeige (stderr), aendert kein Output-Byte */
     }
+    if (nb > 1) fprintf(stderr, "\rbirnpack: compressing... done\n");
     /* R7: schlanker Header. origlen ist redundant (=BLOCK ausser letzter Block,
      * ableitbar aus filesize), bflag passt ins MSB von complen. Statt 5+9n nur
      * 9+4n Bytes -> spart 5n-4 pro Mehrblock-Datei (staerkt die knappe Ratio-Fuehrung). */
@@ -1618,7 +1620,9 @@ static int decompress_file(const char *inp, const char *outp) {
             pthread_create(&th[b+k], NULL, dec_worker, &jobs[b+k]);
         for (uint32_t j = 0; j < k; j++) pthread_join(th[b+j], NULL);
         b += k;
+        if (nb > 1) { fprintf(stderr, "\rbirnpack: decompressing... %3u%%", (unsigned)(100u * b / nb)); fflush(stderr); }  /* nur Anzeige (stderr) */
     }
+    if (nb > 1) fprintf(stderr, "\rbirnpack: decompressing... done\n");
     if (flag == 7) { bcj_x86(out, total, 0); bcj_jcc(out, total, 0); bcj_rip(out, total, 0); }  /* R144/R151/R152: BCJ invertieren (e8e9, jcc, rip; LIFO) vor dem Schreiben */
     if (total) fwrite(out, 1, total, o);
     fclose(o); free(out); free(jobs); free(th); free(blob);
@@ -1627,7 +1631,20 @@ static int decompress_file(const char *inp, const char *outp) {
 
 int main(int argc, char **argv) {
     if (argc != 4) {
-        fprintf(stderr, "usage: %s c|d IN OUT\n", argv[0]);
+        fprintf(stderr,
+            "birnpack v0.1 — experimental lossless compressor (context mixing)\n"
+            "\n"
+            "usage:\n"
+            "  %s c INPUT OUTPUT    compress   (example: birnpack c report.pdf report.bp)\n"
+            "  %s d INPUT OUTPUT    decompress (example: birnpack d report.bp report.pdf)\n"
+            "\n"
+            "notes for first-time users:\n"
+            "  * one file in, one file out — no folders, no archives (zip a folder first)\n"
+            "  * speed is ~4 MB/s each way; large files take a while (progress is shown)\n"
+            "  * already-compressed files (JPEG, MP4, ZIP...) will barely shrink — that's normal\n"
+            "  * experimental format: keep your originals, don't use as your only copy\n"
+            "  * more: https://github.com/ingo6/birnpack\n",
+            argv[0], argv[0]);
         return 2;
     }
     init_tables();
