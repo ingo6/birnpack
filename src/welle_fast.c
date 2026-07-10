@@ -22,9 +22,13 @@
 #include <string.h>
 #include <stdint.h>
 #include <pthread.h>
-#ifndef _WIN32
+#ifdef _WIN32
+#include <windows.h>
+static long portable_ncpu(void) { SYSTEM_INFO si; GetSystemInfo(&si); return si.dwNumberOfProcessors > 0 ? (long)si.dwNumberOfProcessors : 1; }
+#else
 #include <sys/mman.h>
 #include <unistd.h>
+static long portable_ncpu(void) { long n = sysconf(_SC_NPROCESSORS_ONLN); return n > 0 ? n : 1; }
 #endif
 #ifdef __linux__
 #include <sys/prctl.h>
@@ -1531,7 +1535,7 @@ static int compress_file(const char *inp, const char *outp) {
         jobs[b].in = data + off;
         jobs[b].insz = (off + BLOCK <= (size_t)sz) ? BLOCK : ((size_t)sz - off);
     }
-    long ncpu = sysconf(_SC_NPROCESSORS_ONLN); if (ncpu < 1) ncpu = 1;
+    long ncpu = portable_ncpu();
     for (uint32_t b = 0; b < nb; ) {
         uint32_t k = 0;
         for (; k < (uint32_t)ncpu && b + k < nb; k++)
@@ -1607,7 +1611,7 @@ static int decompress_file(const char *inp, const char *outp) {
     unsigned char *out = malloc(total ? total : 1);
     size_t ooff = 0;
     for (uint32_t b = 0; b < nb; b++) { jobs[b].out = out + ooff; ooff += jobs[b].outsz; }
-    long ncpu = sysconf(_SC_NPROCESSORS_ONLN); if (ncpu < 1) ncpu = 1;
+    long ncpu = portable_ncpu();
     for (uint32_t b = 0; b < nb; ) {
         uint32_t k = 0;
         for (; k < (uint32_t)ncpu && b + k < nb; k++)
