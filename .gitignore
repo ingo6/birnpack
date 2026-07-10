@@ -1,2 +1,5 @@
 birnpack
 *.bp
+*.png
+._*
+.DS_Store
