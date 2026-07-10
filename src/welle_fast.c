@@ -22,11 +22,13 @@
 #include <string.h>
 #include <stdint.h>
 #include <pthread.h>
+#ifndef _WIN32
 #include <sys/mman.h>
+#include <unistd.h>
+#endif
 #ifdef __linux__
 #include <sys/prctl.h>
 #endif
-#include <unistd.h>
 
 /* ---- logistische Tabellen (Integer, wie in der klassischen CM-Welt) ---- */
 static int STRETCH[4096];
@@ -361,10 +363,15 @@ static void model_init(Model *m) {
             need += (((size_t)1 << (g_jsp14gr1+g_jsp14gr2+g_jsp14gr3+g_jsp14gr4)) + ((size_t)1 << (g_jsp15gr1+g_jsp15gr2+g_jsp15gr3+g_jsp15gr4)) + ((size_t)1 << (g_jsp16gr1+g_jsp16gr2+g_jsp16gr3+g_jsp16gr4)) + ((size_t)1 << (g_jsp17gr1+g_jsp17gr2+g_jsp17gr3+g_jsp17gr4)) + ((size_t)1 << (g_jsp19gr1+g_jsp19gr2+g_jsp19gr3+g_jsp19gr4))) * sizeof(uint16_t) + 5*(2u<<20);
         }
         m->arena_len = need;
+#ifdef _WIN32
+        m->arena_base = calloc(1, need);               /* Windows: plain zeroed heap (wie anonymes mmap) */
+        if (!m->arena_base) { fprintf(stderr, "welle_fast: arena alloc failed\n"); exit(3); }
+#else
         m->arena_base = mmap(NULL, need, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
         if (m->arena_base == MAP_FAILED) { fprintf(stderr, "welle_fast: arena mmap failed\n"); exit(3); }
 #ifdef MADV_HUGEPAGE
         madvise(m->arena_base, need, MADV_HUGEPAGE);   /* 2MB-Pages: ~45 statt ~21000 Faults je Modell, weniger TLB-Walks */
+#endif
 #endif
         m->arena_cur = (unsigned char *)m->arena_base;
     }
@@ -499,7 +506,11 @@ static void model_init(Model *m) {
 }
 
 static void model_free(Model *m) {
+#ifdef _WIN32
+    free(m->arena_base);                   /* ZEIT R209: alle Tabellen leben in der Arena */
+#else
     munmap(m->arena_base, m->arena_len);   /* ZEIT R209: alle Tabellen leben in der Arena */
+#endif
     if (0) {
     for (int i = 0; i < NCTX; i++) free(m->t[i]);
     free(m->mm_hash); free(m->mm_hash2); free(m->ihist); free(m->ihist2); free(m->ihist3); free(m->ihist4);
