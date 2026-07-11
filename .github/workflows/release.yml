@@ -28,6 +28,14 @@ jobs:
           ./birnpack-win64.exe d packed.bp out.c
           cmp src/welle_fast.c out.c
           echo "lossless roundtrip OK"
+      - name: test — large multi-threaded file (worker-thread stack regression)
+        run: |
+          # >100 blocks => many worker threads; catches stack-size bugs (issue #1 class)
+          for i in $(seq 1 150); do cat src/welle_fast.c >> big.bin; done
+          ./birnpack-win64.exe c big.bin big.bp
+          ./birnpack-win64.exe d big.bp big.out
+          cmp big.bin big.out
+          echo "multi-thread roundtrip OK on Windows"
       - name: attach to release
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
