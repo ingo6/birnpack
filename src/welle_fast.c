@@ -1257,45 +1257,51 @@ static int dec_bit(Dec *d, int p1) {
 /* ---- CM-Kern auf einem Puffer (ein Modell, seriell) ---- */
 static unsigned char *cm_encode(const unsigned char *data, size_t sz, size_t *outn) {
     g_jsh = (g_jpg && g_nctx == NCTX) ? g_jshift : 0;   /* R109: jpeg-Full-Pfad kuerzere cross-byte-K */
-    Model m; model_init(&m);
-    m.mm_buf = data;                       /* R13: Verlauf = Eingabe */
+    Model *m = malloc(sizeof(Model));      /* Heap statt Stack: Model >1MB, macOS-Threads haben nur 512KB Stack (Issue #1) */
+    if (!m) { fprintf(stderr, "birnpack: model alloc failed\n"); exit(3); }
+    model_init(m);
+    m->mm_buf = data;                      /* R13: Verlauf = Eingabe */
     Enc e; enc_init(&e);
     for (size_t i = 0; i < sz; i++) {
         int byte = data[i];
-        m.mm_pos = (uint32_t)i;
-        model_new_byte_ctx(&m);
+        m->mm_pos = (uint32_t)i;
+        model_new_byte_ctx(m);
         for (int b = 7; b >= 0; b--) {
             int bit = (byte >> b) & 1;
-            int p = model_predict(&m);
+            int p = model_predict(m);
             enc_bit(&e, bit, p);
-            model_update(&m, bit);
+            model_update(m, bit);
         }
-        model_byte_end(&m, byte, (uint32_t)i);   /* R13: Match fortschreiben */
+        model_byte_end(m, byte, (uint32_t)i);   /* R13: Match fortschreiben */
     }
     enc_flush(&e);
-    model_free(&m);
+    model_free(m);
+    free(m);
     *outn = e.n;
     return e.out;
 }
 static void cm_decode(const unsigned char *in, size_t inn, unsigned char *out, size_t sz) {
     g_jsh = (g_jpg && g_nctx == NCTX) ? g_jshift : 0;   /* R109: jpeg-Full-Pfad kuerzere cross-byte-K */
-    Model m; model_init(&m);
-    m.mm_buf = out;                        /* R13: Verlauf = bisher decodierte Ausgabe */
+    Model *m = malloc(sizeof(Model));      /* Heap statt Stack: Model >1MB, macOS-Threads haben nur 512KB Stack (Issue #1) */
+    if (!m) { fprintf(stderr, "birnpack: model alloc failed\n"); exit(3); }
+    model_init(m);
+    m->mm_buf = out;                       /* R13: Verlauf = bisher decodierte Ausgabe */
     Dec d; dec_init(&d, in, inn);
     for (size_t i = 0; i < sz; i++) {
         int byte = 0;
-        m.mm_pos = (uint32_t)i;
-        model_new_byte_ctx(&m);
+        m->mm_pos = (uint32_t)i;
+        model_new_byte_ctx(m);
         for (int b = 7; b >= 0; b--) {
-            int p = model_predict(&m);
+            int p = model_predict(m);
             int bit = dec_bit(&d, p);
-            model_update(&m, bit);
+            model_update(m, bit);
             byte = (byte << 1) | bit;
         }
         out[i] = (unsigned char)byte;            /* R13: erst schreiben ... */
-        model_byte_end(&m, byte, (uint32_t)i);   /* ... dann Match fortschreiben */
+        model_byte_end(m, byte, (uint32_t)i);    /* ... dann Match fortschreiben */
     }
-    model_free(&m);
+    model_free(m);
+    free(m);
 }
 
 static void put32(unsigned char *p, uint32_t v) { for (int i = 0; i < 4; i++) p[i] = (v >> (8*i)) & 0xFF; }
@@ -1536,14 +1542,16 @@ static int compress_file(const char *inp, const char *outp) {
         jobs[b].insz = (off + BLOCK <= (size_t)sz) ? BLOCK : ((size_t)sz - off);
     }
     long ncpu = portable_ncpu();
+    pthread_attr_t tattr; pthread_attr_init(&tattr); pthread_attr_setstacksize(&tattr, (size_t)8u << 20);  /* 8MB wie Linux-Default; macOS gibt Threads sonst nur 512KB (Issue #1) */
     for (uint32_t b = 0; b < nb; ) {
         uint32_t k = 0;
         for (; k < (uint32_t)ncpu && b + k < nb; k++)
-            pthread_create(&th[b+k], NULL, enc_worker, &jobs[b+k]);
+            pthread_create(&th[b+k], &tattr, enc_worker, &jobs[b+k]);
         for (uint32_t j = 0; j < k; j++) pthread_join(th[b+j], NULL);
         b += k;
         if (nb > 1) { fprintf(stderr, "\rbirnpack: compressing... %3u%%", (unsigned)(100u * b / nb)); fflush(stderr); }  /* nur Anzeige (stderr), aendert kein Output-Byte */
     }
+    pthread_attr_destroy(&tattr);
     if (nb > 1) fprintf(stderr, "\rbirnpack: compressing... done\n");
     /* R7: schlanker Header. origlen ist redundant (=BLOCK ausser letzter Block,
      * ableitbar aus filesize), bflag passt ins MSB von complen. Statt 5+9n nur
@@ -1614,14 +1622,16 @@ static int decompress_file(const char *inp, const char *outp) {
     size_t ooff = 0;
     for (uint32_t b = 0; b < nb; b++) { jobs[b].out = out + ooff; ooff += jobs[b].outsz; }
     long ncpu = portable_ncpu();
+    pthread_attr_t tattr; pthread_attr_init(&tattr); pthread_attr_setstacksize(&tattr, (size_t)8u << 20);  /* 8MB wie Linux-Default; macOS gibt Threads sonst nur 512KB (Issue #1) */
     for (uint32_t b = 0; b < nb; ) {
         uint32_t k = 0;
         for (; k < (uint32_t)ncpu && b + k < nb; k++)
-            pthread_create(&th[b+k], NULL, dec_worker, &jobs[b+k]);
+            pthread_create(&th[b+k], &tattr, dec_worker, &jobs[b+k]);
         for (uint32_t j = 0; j < k; j++) pthread_join(th[b+j], NULL);
         b += k;
         if (nb > 1) { fprintf(stderr, "\rbirnpack: decompressing... %3u%%", (unsigned)(100u * b / nb)); fflush(stderr); }  /* nur Anzeige (stderr) */
     }
+    pthread_attr_destroy(&tattr);
     if (nb > 1) fprintf(stderr, "\rbirnpack: decompressing... done\n");
     if (flag == 7) { bcj_x86(out, total, 0); bcj_jcc(out, total, 0); bcj_rip(out, total, 0); }  /* R144/R151/R152: BCJ invertieren (e8e9, jcc, rip; LIFO) vor dem Schreiben */
     if (total) fwrite(out, 1, total, o);

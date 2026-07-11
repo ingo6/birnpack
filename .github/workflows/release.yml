@@ -50,3 +50,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload ${{ github.ref_name }} birnpack-linux-x64 --clobber
+
+  macos-arm:
+    runs-on: macos-latest   # Apple Silicon (M-series) — reproduces issue #1 environment
+    steps:
+      - uses: actions/checkout@v4
+      - name: build
+        run: cc -O3 -pthread -o birnpack-macos-arm64 src/welle_fast.c -lm
+      - name: test — roundtrip suite
+        run: |
+          cp birnpack-macos-arm64 birnpack
+          bash tests/roundtrip.sh
+      - name: test — large multi-threaded file (issue #1 regression)
+        run: |
+          # >100 blocks => many worker threads; this is what crashed on M3 with stack-allocated models
+          perl -e 'for $i (0..16*1024*1024-1){ print chr(($i*31+int(80*sin($i/97)))%256); }' > big.bin
+          ./birnpack-macos-arm64 c big.bin big.bp
+          ./birnpack-macos-arm64 d big.bp big.out
+          cmp big.bin big.out
+          echo "16MB multi-thread roundtrip OK on Apple Silicon"
+      - name: attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload ${{ github.ref_name }} birnpack-macos-arm64 --clobber
